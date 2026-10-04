@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCP stdio server that exposes ONE file: read_file, write_file, edit_file.
+"""MCP stdio server that exposes ONE file: read_file, write_file, append_file, edit_file.
 
 The path is fixed at launch (--file); no tool accepts a path, so a model using this
 server cannot touch any other file. Stdlib only.
@@ -45,6 +45,10 @@ class OneFile:
         os.replace(tmp, self.path)  # atomic: never leaves a half-written file
         return f"wrote {len(content)} characters to {self.path}"
 
+    def append(self, content):
+        existing = self.read() if os.path.exists(self.path) else ""
+        return self.write(existing + content).replace("wrote", "appended; now")
+
     def edit(self, old, new):
         text = self.read() if os.path.exists(self.path) else None
         if text is None:
@@ -60,6 +64,11 @@ def tools(path):
         {"name": "read_file", "description": f"Read the assigned file ({path}). Takes no arguments.",
          "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
         {"name": "write_file", "description": f"Create or completely replace the assigned file ({path}).",
+         "inputSchema": {"type": "object", "properties": {"content": {"type": "string"}},
+                         "required": ["content"], "additionalProperties": False}},
+        {"name": "append_file",
+         "description": f"Append text to the end of the assigned file ({path}), creating it if needed. "
+                        "Use this to build a long file in chunks.",
          "inputSchema": {"type": "object", "properties": {"content": {"type": "string"}},
                          "required": ["content"], "additionalProperties": False}},
         {"name": "edit_file",
@@ -86,6 +95,8 @@ def handle(msg, f):
                 text = f.read()
             elif name == "write_file":
                 text = f.write(args["content"])
+            elif name == "append_file":
+                text = f.append(args["content"])
             elif name == "edit_file":
                 text = f.edit(args["old_string"], args["new_string"])
             else:

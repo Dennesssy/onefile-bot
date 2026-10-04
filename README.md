@@ -393,6 +393,57 @@ it outside the sandbox.
 
 ---
 
+## fixloop: compile → LSP → SDK lookup → edit (`swift` branch)
+
+`FixLoop.swift` repairs one Swift file until it builds. Each round:
+
+1. **Compile** (default: full `xcrun swiftc -parse-as-library FILE -o /tmp/fixloop-build-output`;
+   override with `--build`) and parse `file:line:col: error:` lines for the target file.
+2. **LSP:** start `xcrun sourcekit-lsp`, open the file, and at each error position ask for
+   **hover** (the real signature and docs) and **completion** (the valid member names).
+3. **SDK lookup:** for each type named in an error, grep its declarations from the SDK found
+   with `xcrun --show-sdk-path` (`.swiftinterface` and `.h` files).
+4. **Edit:** hand errors and facts to onefile-bot, which edits only that file.
+
+It stops when the build passes, when the same errors appear twice in a row (it's going in
+circles), or after `--max-rounds`.
+
+```bash
+swiftc -O -parse-as-library FixLoop.swift -o fixloop
+./fixloop --file Sources/App/Broken.swift --max-rounds 4
+./fixloop --file Demo.swift --bot "python3 onefile_bot.py"      # use the Python bot
+./fixloop --file Demo.swift --build "swift build" --max-rounds 6  # package build instead
+```
+
+Real run on a file with the API mistakes a model made earlier (`contextualEmbedding(language:)`,
+`NSRange` instead of `Range<String.Index>`, three closure parameters, `Double.floatValue`):
+
+```
+== round 1: 1 errors
+Fixed the compile error on line 7. The invalid call `NLContextualEmbedding.contextualEmbedding(language: .english)` was replaced ...
+== round 2: 3 errors
+...
+== round 3: 3 errors
+2. **Closure arity**: The `enumerateTokenVectors(in:_:)` closure takes 2 arguments (`vector`, `range`), so I removed the third `stop` parameter.
+3. **`floatValue` on Double**: `vector.first!` is already a `Double`, so I removed the invalid `.floatValue` call ...
+compiled after 3 fix rounds
+```
+
+A final round (after switching the default from `-typecheck` to a full build, which also
+catches "missing return in closure") added `return true` to the closure. The repaired program
+then ran: `tokens: 7`.
+
+To see exactly what the bot is told (errors, LSP hover/completions, SDK excerpts), use `echo`
+as the bot: `./fixloop --file X.swift --bot /bin/echo --max-rounds 1`.
+
+`FixLoop.swift` itself was written by onefile-bot with `qwen/qwen3.8-27b` from a written spec.
+Building a ~390-line file needed the `append_file` tool: with only `edit_file`, the model kept
+re-reading the file and anchoring edits on ambiguous lines until it ran out of steps.
+fixloop catches compile errors only; three runtime bugs (a misspelled flag, a `file://` URL used
+as a path, and the `-typecheck` default) were found by running it and fixed by the bot on request.
+
+---
+
 ## Roadmap
 
 - **`swift` branch:** Swift port as a single binary (done); next, async/await parallel bots in one process.

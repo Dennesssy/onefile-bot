@@ -49,6 +49,11 @@ class OneFileServer(unittest.TestCase):
         with open(self.target) as f:
             self.assertEqual(f.read(), "x\n")
 
+    def test_append_builds_file_in_chunks(self):
+        r = self.rpc(("append_file", {"content": "line 1\n"}), ("append_file", {"content": "line 2\n"}),
+                     ("read_file", {}))
+        self.assertEqual(r[2]["result"]["content"][0]["text"], "line 1\nline 2\n")
+
     def test_ambiguous_edit_rejected(self):
         r = self.rpc(("write_file", {"content": "a a\n"}), ("edit_file", {"old_string": "a", "new_string": "b"}))
         self.assertTrue(r[1]["result"]["isError"])

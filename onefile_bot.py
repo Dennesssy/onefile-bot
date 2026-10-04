@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Groq tool-calling loop whose ONLY tools are read/write/edit on one assigned file.
+"""Groq tool-calling loop whose ONLY tools are read/write/append/edit on one assigned file.
 
 nanobot (v0.0.92) always injects built-in tools (bash, edit, glob, webFetch, ...) into every
 request, so it cannot be confined to a file. Here the request's `tools` array is built from the
-three OneFile tools and nothing else, so the model has no way to reach any other file.
+four OneFile tools and nothing else, so the model has no way to reach any other file.
 
 Usage: onefile_bot.py --file /abs/path "what to write" [--model openai/gpt-oss-120b] [--max-steps 12]
 Needs GROQ_API_KEY in the environment.
@@ -55,9 +55,11 @@ def call(f, name, args):
             return f.read()
         if name == "write_file":
             return f.write(args["content"])
+        if name == "append_file":
+            return f.append(args["content"])
         if name == "edit_file":
             return f.edit(args["old_string"], args["new_string"])
-        return f"error: unknown tool {name}; only read_file, write_file, edit_file exist"
+        return f"error: unknown tool {name}; only read_file, write_file, append_file, edit_file exist"
     except (ValueError, KeyError, OSError) as e:
         return f"error: {e}"
 
@@ -81,8 +83,10 @@ def main():
     messages = [
         {"role": "system", "content":
             f"You write and edit exactly one file: {f.path}\n"
-            "Your only tools are read_file, write_file and edit_file; they always act on that file. "
+            "Your only tools are read_file, write_file, append_file and edit_file; they always act on that file. "
             "Read the file first, make the requested change, then read it back to check it. "
+            "To create a long file, write_file the first section, then append_file each further section in order; "
+            "don't re-read the file between appends. "
             "Finish with a short summary of what you wrote. Do not ask questions."},
         {"role": "user", "content": a.prompt + reference},
     ]
