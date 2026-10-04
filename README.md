@@ -355,8 +355,46 @@ test_write_read_edit ... ok
 
 ---
 
+## Swift version (`swift` branch)
+
+`OneFileBot.swift` is a single-file Swift 6 port with the same tools, prompts, retry behaviour
+and output. It needs only Foundation and builds to one binary:
+
+```bash
+git switch swift
+swiftc -O -parse-as-library OneFileBot.swift -o onefile-bot   # -parse-as-library: the file uses @main
+
+./onefile-bot --file /tmp/fib.swift "Write a Swift script that prints the first 10 Fibonacci numbers, one per line."
+```
+
+Real output:
+
+```
+[step 1] read_file -> (file /tmp/fib.swift does not exist yet; use write_file to create it)
+[step 2] write_file -> wrote 210 characters to /tmp/fib.swift
+[step 3] read_file -> // Fibonacci.swift
+Created `/tmp/fib.swift` containing a Swift script that prints the first 10 Fibonacci numbers, each on
+its own line. The script initializes the sequence and iterates ten times, outputting each value.
+```
+
+Same checks as the Python version, run against the binary: the escape prompt left no
+`/tmp/escape.txt`, and "Change it to print 12 numbers, using edit_file" produced
+`0 1 1 2 3 5 8 13 21 34 55 89`.
+
+**How it was made:** the Swift file was written by onefile-bot itself, given the Python files as
+`--context` and a written spec, with `swiftc` errors fed back after each attempt.
+`openai/gpt-oss-120b` repeatedly produced unparseable JSON when writing the whole file in one
+tool call (Groq `tool_use_failed`), even after retries; `qwen/qwen3.8-27b` built it in ~27 tool
+calls and compiled after 4 fix rounds. For large files, try `--model qwen/qwen3.8-27b`.
+
+**Sandboxed shells:** if the binary reports "The Internet connection appears to be offline" while
+the Python version works, the shell's sandbox is blocking network access for the new binary; run
+it outside the sandbox.
+
+---
+
 ## Roadmap
 
-- **`swift` branch:** Swift port as a single binary, with async/await parallel bots.
+- **`swift` branch:** Swift port as a single binary (done); next, async/await parallel bots in one process.
 - Built-in validator loop: run a check command after each attempt and retry with its errors.
 - An on-device Core ML text classifier that decides which file a chunk of context belongs to.

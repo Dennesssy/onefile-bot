@@ -21,17 +21,32 @@ from onefile_mcp import OneFile, tools as onefile_tools  # noqa: E402
 GROQ = "https://api.groq.com/openai/v1/chat/completions"
 
 
+MALFORMED_RETRIES = 3
+
+
 def chat(model, messages, tools):
-    body = json.dumps({"model": model, "messages": messages, "temperature": 0.2,
-                       "tools": tools, "tool_choice": "auto"}).encode()
-    req = urllib.request.Request(GROQ, data=body, headers={
-        "Authorization": f"Bearer {os.environ['GROQ_API_KEY']}", "Content-Type": "application/json",
-        "User-Agent": "onefile-bot/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=300) as r:
-            return json.loads(r.read())["choices"][0]["message"]
-    except urllib.error.HTTPError as e:
-        sys.exit(f"Groq HTTP {e.code}: {e.read().decode()[:500]}")
+    """One completion. If the model emits a tool call Groq can't parse as JSON (tool_use_failed,
+    common when writing a large file in one call), tell the model and retry, asking for smaller pieces."""
+    for attempt in range(MALFORMED_RETRIES + 1):
+        body = json.dumps({"model": model, "messages": messages, "temperature": 0.2,
+                           "tools": tools, "tool_choice": "auto"}).encode()
+        req = urllib.request.Request(GROQ, data=body, headers={
+            "Authorization": f"Bearer {os.environ['GROQ_API_KEY']}", "Content-Type": "application/json",
+            "User-Agent": "onefile-bot/1.0"})
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                return json.loads(r.read())["choices"][0]["message"]
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode()
+            if e.code == 400 and "tool_use_failed" in detail and attempt < MALFORMED_RETRIES:
+                print(f"[retry {attempt + 1}] model produced an invalid tool call; asking for smaller pieces",
+                      file=sys.stderr)
+                messages.append({"role": "user", "content":
+                    "Your last tool call could not be parsed as JSON and was not executed. Retry with smaller "
+                    "pieces: write_file a short skeleton first, then add one section at a time with edit_file. "
+                    "Keep every JSON string properly escaped."})
+                continue
+            sys.exit(f"Groq HTTP {e.code}: {detail[:500]}")
 
 
 def call(f, name, args):
