@@ -5,14 +5,14 @@ one file** and nothing else. You assign it a file and tell it what to write. It 
 no web access, and no way to name another path, so you can run many of them side by side,
 one per file, without any of them wandering into the rest of your project.
 
-- **Confined by construction.** The model is offered three tools: `read_file`, `write_file`,
+- **Confined by construction.** The model is offered four tools: `read_file`, `write_file`, `append_file`,
   and `edit_file`. None of them takes a path. The file is fixed when the bot starts.
 - **No dependencies.** Python 3.9+ standard library only. No `pip install`.
 - **Fast and cheap.** Defaults to `openai/gpt-oss-120b` on Groq; any Groq model with tool
   calling works.
 - **Reference material without access.** `--context` pastes other files into the prompt as
   read-only text, so the bot can follow an existing style or API without being able to touch them.
-- **Also an MCP server.** `onefile_mcp.py` serves the same three tools over MCP stdio.
+- **Also an MCP server.** `onefile_mcp.py` serves the same four tools over MCP stdio.
 
 ---
 
@@ -252,7 +252,7 @@ Two rules for parallel runs:
 
 ## Using it as an MCP server
 
-`onefile_mcp.py` exposes the same three tools over MCP stdio, for MCP clients that don't
+`onefile_mcp.py` exposes the same four tools over MCP stdio, for MCP clients that don't
 add tools of their own:
 
 ```bash
@@ -320,7 +320,7 @@ that wasn't enough: nanobot v0.0.92 adds about 20 built-in tools to every model 
 including `bash`, `edit`, `glob`, `grep`, and `webFetch`, and neither the agent's `tools:` list
 nor `permissions:` removes them. Asked to create `/tmp/escape.txt`, the nanobot agent did so.
 
-`onefile_bot.py` builds the request itself, so the tool list is exactly the three file tools.
+`onefile_bot.py` builds the request itself, so the tool list is exactly the four file tools.
 The same escape test is blocked.
 
 ---
