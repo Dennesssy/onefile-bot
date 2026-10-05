@@ -1,6 +1,8 @@
 __pycache__/
-*.pyc
 .DS_Store
+*.new
 *.onefile-tmp
-onefile-bot
+*.pyc
+delegate
 fixloop
+onefile-bot

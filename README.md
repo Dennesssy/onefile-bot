@@ -357,8 +357,66 @@ test_write_read_edit ... ok
 
 ## Swift version (`swift` branch)
 
-`OneFileBot.swift` is a single-file Swift 6 port with the same tools, prompts, retry behaviour
-and output. It needs only Foundation and builds to one binary:
+The Swift bot has moved past the Python version. Build:
+
+```bash
+swiftc -O -parse-as-library OneFileBot.swift -o onefile-bot
+swiftc -O -parse-as-library Delegate.swift   -o delegate
+```
+
+### What the Swift bot does
+
+| Feature | How |
+|---|---|
+| **A set of files per bot** | Repeat `--file`. Every tool takes a `file` argument whose JSON schema is an enum of the assigned names, and the name is checked again before any read or write. |
+| **Four tools** | `read_file`, `write_file`, `append_file`, `edit_file`. Nothing else is in the request. |
+| **Dynamic instructions** | Following Foundation Models' `DynamicInstructions` (see AnyLanguageModel PR #293), the system message is rebuilt before *every* request: each file's state (written, N lines, or MISSING) plus the next action. |
+| **Dynamic tool choice** | `tool_choice: "required"` while a file is missing or the check fails, so the model cannot stop with a plan. If the model only reads twice in a row, `read_file` is withheld for the next request. |
+| **`--check CMD`** | A command that must pass (exit 0, no `error`) before the job counts as done. Its errors, plus numbered source lines around each one, go into the instructions. |
+| **Context management** | Once a request passes 12,000 input tokens, earlier tool exchanges are dropped entirely; the per-request instructions carry the state. |
+| **Guards** | Refuses `write_file` that would shrink a 40+ line file below half (the model "restarting" a file), and refuses content that looks like a progress note. Identical rewrites report `unchanged`. |
+| **Transport** | Requests go through `/usr/bin/curl`; the key is passed with `--variable %GROQ_API_KEY`, never as an argument. App firewalls (Little Snitch) hold each freshly rebuilt binary's own connections; curl is already allowed. |
+| **Retries** | 429/503 with an escalating wait (10 s, 20 s, … up to 90 s, at least the server's `retry-after`), malformed tool calls (`tool_use_failed`), and network errors. |
+
+### Lessons that changed the code
+
+- **Set `max_tokens`.** Without it, Groq capped `qwen/qwen3.8-27b` tool-call content at about 1,000
+  characters and still returned `finish_reason: tool_calls`; files were silently cut mid-word.
+  With `max_tokens: 16000` the same request wrote 472 lines.
+- **Never put placeholders where content goes.** Replacing old `write_file` content with a note
+  led the model to copy the note into new files. Old exchanges are now removed, not rewritten.
+- **"Done" must mean "passes the check".** A model reading a broken file and then replying is not
+  a fix; repairs only finish when `--check` passes.
+- **Per-minute token limits are the bottleneck**, not model speed (≈500 tok/s): every request
+  resends the conversation. Folders alternate between `qwen/qwen3.8-27b` and `openai/gpt-oss-120b`
+  (separate limits; gpt-oss also gets Groq's automatic prompt caching).
+
+### Delegate: a file tree to bots
+
+`delegate` reads a CSV (`path,type,purpose,requirement,plane,platform,status`), groups missing files
+by folder, and runs folders in dependency waves (contracts → data/config → core → server →
+execution node → tests → deploy → docs), `--jobs` at a time. Each folder is written in batches of 4
+(later batches see earlier ones as context); every file is then checked by type (Swift syntax,
+`protoc`, JSON, YAML, `bash -n`, `plutil`, `py_compile`) and gets up to 2 single-file fix rounds.
+
+```bash
+./delegate --tree file-tree.csv --root ~/repo --wave all --jobs 3 [--folder Sources/Core/Auth] [--dry-run]
+./repair.sh ~/repo file-tree.csv path/to/file.swift ...      # per-file repair with --check
+./buildfix.sh ~/repo AgenticGatewayCore 4                     # module build → errors per file → bots → rebuild
+```
+
+Real run (`agentic-gateway`, 251-file tree, 54 files already present): all 197 missing files written
+by bots; after per-file repair every one of the 123 Swift files passes `swiftc -parse`, all protos
+pass `buf build`, all 11 SQL migrations apply in order in SQLite (47 tables), Terraform passes
+`terraform fmt`. A first module build of the core library reported 228 errors, mostly the same type
+declared in several folders. One bot per duplicate (owner file as read-only context) brought it to
+33; `buildfix.sh` rounds took it to 33 → 16 → 13 → 8, and three targeted fixes (a missing
+settings type, a module-wide `enum SHA256` shadowing CryptoKit's) left 5. All 5 are in one file
+that needs grpc-swift and SwiftNIO, which the package does not declare yet.
+
+### The original single-file port
+
+`OneFileBot.swift` started as a single-file Swift 6 port of the Python bot, written by the bot itself:
 
 ```bash
 git switch swift

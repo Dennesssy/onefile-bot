@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -21,7 +22,7 @@ from onefile_mcp import OneFile, tools as onefile_tools  # noqa: E402
 GROQ = "https://api.groq.com/openai/v1/chat/completions"
 
 
-MALFORMED_RETRIES = 3
+MALFORMED_RETRIES = 5
 
 
 def chat(model, messages, tools):
@@ -29,7 +30,8 @@ def chat(model, messages, tools):
     common when writing a large file in one call), tell the model and retry, asking for smaller pieces."""
     for attempt in range(MALFORMED_RETRIES + 1):
         body = json.dumps({"model": model, "messages": messages, "temperature": 0.2,
-                           "tools": tools, "tool_choice": "auto"}).encode()
+                           "tools": tools, "tool_choice": "auto",
+                           "max_tokens": 16000}).encode()  # without it Groq truncates long tool-call content
         req = urllib.request.Request(GROQ, data=body, headers={
             "Authorization": f"Bearer {os.environ['GROQ_API_KEY']}", "Content-Type": "application/json",
             "User-Agent": "onefile-bot/1.0"})
@@ -38,6 +40,11 @@ def chat(model, messages, tools):
                 return json.loads(r.read())["choices"][0]["message"]
         except urllib.error.HTTPError as e:
             detail = e.read().decode()
+            if e.code in (429, 503) and attempt < MALFORMED_RETRIES:
+                wait = float(e.headers.get("retry-after") or 0) or 15 * (attempt + 1)
+                print(f"[retry {attempt + 1}] Groq HTTP {e.code}; waiting {wait:.0f}s", file=sys.stderr)
+                time.sleep(min(wait, 120))
+                continue
             if e.code == 400 and "tool_use_failed" in detail and attempt < MALFORMED_RETRIES:
                 print(f"[retry {attempt + 1}] model produced an invalid tool call; asking for smaller pieces",
                       file=sys.stderr)
